@@ -2,6 +2,7 @@
 #include <upboard_ukf/serial.hpp>
 #include <sensor_msgs/Imu.h>
 #include <geometry_msgs/WrenchStamped.h>
+#include <geometry_msgs/Inertia.h>
 #include <std_msgs/Int32.h>
 #include <imu_thread.h>
 #include "ros/ros.h"
@@ -58,19 +59,11 @@ int imu_decode(uint8_t *buf){
 	uint8_t recv_checksum = buf[1];
 	uint8_t checksum = generate_imu_checksum_byte(&buf[2], IMU_SERIAL_MSG_SIZE - 3);
 	if(checksum != recv_checksum) {
-		printf("oh no grabage message!\n");
+		printf("oh no garbage message!\n");
 		return 1; //error detected
 	}
 
-	memcpy(&imu.thrust, &buf[2], sizeof(float));
-
-	// float enu_acc_x, enu_acc_y, enu_acc_z;
-
-	/* swap the order of quaternion to make the frame consistent with ahrs' rotation order */
-	memcpy(&imu.gyrop[0], &buf[6], sizeof(float));
-	memcpy(&imu.gyrop[1], &buf[10], sizeof(float));
-	memcpy(&imu.gyrop[2], &buf[14], sizeof(float));
-
+	memcpy(&imu.mass, &buf[2], sizeof(float));
 	return 0;
 }
 
@@ -93,32 +86,13 @@ void imu_buf_push(uint8_t c)
 	}
 }
 
-void ukf_force_cb(geometry_msgs::Point force)
-{
-	ukf_force[0] = force.x;
-	ukf_force[1] = force.y;
-	ukf_force[2] = force.z;
-}
-
-void controller_force_cb(geometry_msgs::Point force)
-{
-	controller_force[0] = force.x;
-	controller_force[1] = force.y;
-	controller_force[2] = force.z;
-}
 
 int imu_thread_entry(){
-	sensor_msgs::Imu IMU_data;
-	geometry_msgs::WrenchStamped thrust_data;
+
+	geometry_msgs::Inertia inertia;
 	ros::NodeHandle n;
-#if (MAV_SELECT == FOLLOWER)
-	ros::Subscriber sub = n.subscribe("force_estimate",1000,ukf_force_cb);
-#elif (MAV_SELECT == LEADER)
-	ros::Subscriber ctrl_sub = n.subscribe("/controller_force",1000,controller_force_cb);
-#endif
-	ros::Publisher omega_pub = n.advertise<sensor_msgs::Imu>("imu/data_raw", 5);
-	ros::Publisher thrust_pub = n.advertise<geometry_msgs::WrenchStamped>("/rotor_all_ft", 5);
-	ros::Publisher yaw_pub = n.advertise<geometry_msgs::Pose2D>("/stm32_payload_yaw",5);
+
+	ros::Publisher inertia_pub = n.advertise<geometry_msgs::Inertia>("/inertia", 5);
 	char c;
 	imu.buf_pos = 0;
 	int count1 =0;
@@ -140,28 +114,12 @@ int imu_thread_entry(){
 			{
 				for(int i =0;i<IMU_SERIAL_MSG_SIZE;i++)
 					cout << "s";
-#if (MAV_SELECT == FOLLOWER)
-				printf("\t UKF estimated force  x: %f  y: %f  z: %f\n", ukf_force[0], ukf_force[1], ukf_force[2]);
-#elif (MAV_SELECT == LEADER)
-				printf("\t controller force  x: %f  y: %f  z: %f\n", controller_force[0], controller_force[1], controller_force[2]);
-#endif
+
 				if(imu_decode(imu.buf)==0)
 				{
-					IMU_data.header.stamp = ros::Time::now();
-					IMU_data.header.frame_id = "base_link";
-					// imu.acc is ned , IMU_data should be enu
-					// IMU_data.linear_acceleration.x = imu.thrust;
-					thrust_data.wrench.force.z = imu.thrust;
-					// IMU_data.linear_acceleration.y = imu.acc[0];
-					// IMU_data.linear_acceleration.z = -imu.acc[2];
-					IMU_data.angular_velocity.x = imu.gyrop[0]*M_PI/180.0f;
-					IMU_data.angular_velocity.y = imu.gyrop[1]*M_PI/180.0f;
-					IMU_data.angular_velocity.z = -imu.gyrop[2]*M_PI/180.0f;	//*M_PI/180.0f
-					IMU_data.angular_velocity_covariance={1.2184696791468346e-07, 0.0, 0.0, 0.0, 1.2184696791468346e-07, 0.0, 0.0, 0.0, 1.2184696791468346e-07};
-					IMU_data.linear_acceleration_covariance={8.999999999999999e-08, 0.0, 0.0, 0.0, 8.999999999999999e-08, 0.0, 0.0, 0.0, 8.999999999999999e-08};
-
-					omega_pub.publish(IMU_data);
-					thrust_pub.publish(thrust_data);
+					
+					inertia.m = imu.mass;
+					inertia_pub.publish(inertia);
 				}
 			}
 		}

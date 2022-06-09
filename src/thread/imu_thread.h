@@ -2,9 +2,10 @@
 #ifndef __IMU_THREAD_H__
 #define __IMU_THREAD_H__
 
-#define IMU_SERIAL_MSG_SIZE 19
+#define IMU_SERIAL_MSG_SIZE 7
 #define IMU_CHECKSUM_INIT_VAL 0
 typedef struct {
+	float mass;
 
 	float thrust;
 
@@ -17,10 +18,6 @@ typedef struct {
 	uint8_t buf[];
 
 } imu_t ;
-
-void ukf_force_cb(geometry_msgs::Point force);
-
-void controller_force_cb(geometry_msgs::Point force);
 
 double calc_deviation(double*);
 
